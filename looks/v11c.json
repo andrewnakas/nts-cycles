@@ -1,0 +1,15 @@
+{
+ "name": "v11c",
+ "note": "v11c: the episode's own look (lights, exposure, skin, hair, eyes as rendered for the reference pass's input) plus the cloth part of the surface pack only (knit rows, fibre noise, weave bump, soft creases; values of v9d). For the NR-1 v2 route: blind judges preferred our faces on the held-out clips but named the flat, wetsuit-like cloth when they saw the whole frame. 2026-11-22.",
+ "only_realism": true,
+ "params": {},
+ "realism": {
+  "cloth": {
+   "knit": 0.18,
+   "knit_scale": 260,
+   "fibre": 0.12,
+   "bump": 0.5,
+   "crease": 0.6
+  }
+ }
+}

@@ -1,0 +1,16 @@
+{
+ "name": "v11d",
+ "note": "v11d: the episode's own look plus cloth only, stronger than v11c and matte. v11c (v9d's cloth values) was still called flatter than the reference's cloth by every blind judge who mentioned cloth (batch AM); by eye about twice the strength matches (runs/v2_cloth_comp.py G=2), and the sheen on shoulders and sleeves is what reads as a wetsuit. 2026-11-22.",
+ "only_realism": true,
+ "params": {},
+ "realism": {
+  "cloth": {
+   "knit": 0.3,
+   "knit_scale": 260,
+   "fibre": 0.2,
+   "bump": 1.0,
+   "crease": 0.8,
+   "matte": 0.85
+  }
+ }
+}

@@ -1,0 +1,41 @@
+{
+ "name": "dbg_hair2",
+ "note": "debug: red tint + coarse hair noise",
+ "params": {
+  "w": {
+   "HeroEyes": 1.0,
+   "HeroFill": 1.0,
+   "HeroKey": 1.0,
+   "HeroKicker": 1.0,
+   "HeroRim": 1.0,
+   "emit": 1.0,
+   "set": 1.0,
+   "world": 1.0
+  },
+  "skin": {
+   "value": 0.45,
+   "sat": 0.8,
+   "hue": 0.01
+  },
+  "hair": [
+   0.75,
+   0.68,
+   0.6
+  ],
+  "exposure": 0.0
+ },
+ "realism": {
+  "hair": {
+   "strand_scale": 60,
+   "clump_scale": 8,
+   "contrast": 0.9,
+   "clump": 0.9,
+   "bump": 0.8,
+   "tint": [
+    1.0,
+    0.2,
+    0.2
+   ]
+  }
+ }
+}

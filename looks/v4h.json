@@ -1,0 +1,32 @@
+{
+ "name": "v4h",
+ "note": "Warm brown hair gain (p2's [0.64,0.67,0.67] cut red more than blue: grey-blue hair). Variant of ref5p2 (2026-11-12 asset/look pass).",
+ "params": {
+  "w": {
+   "HeroEyes": 0.4472644308192359,
+   "HeroFill": 2.7953746804514785,
+   "HeroKey": 1.1598744791177535,
+   "HeroKicker": 0.2360818591126087,
+   "HeroRim": 0.2853511353900074,
+   "emit": 1.9939140660466466,
+   "set": 0.9924518152601907,
+   "world": 1.052748583392732
+  },
+  "skin": {
+   "value": 0.5,
+   "sat": 0.9793152057370365,
+   "hue": -0.02080072288942337,
+   "detail": 4.0
+  },
+  "hair": [
+   0.62,
+   0.53,
+   0.44
+  ],
+  "exposure": -0.5593887449962712
+ },
+ "hair_strands": [
+  0.4,
+  "v"
+ ]
+}

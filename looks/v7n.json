@@ -1,0 +1,27 @@
+{
+ "name": "v7n",
+ "note": "Neutral look (no change): checks a look-driven render matches native. 2026-11-12.",
+ "params": {
+  "w": {
+   "HeroEyes": 1.0,
+   "HeroFill": 1.0,
+   "HeroKey": 1.0,
+   "HeroKicker": 1.0,
+   "HeroRim": 1.0,
+   "emit": 1.0,
+   "set": 1.0,
+   "world": 1.0
+  },
+  "skin": {
+   "value": 1.0,
+   "sat": 1.0,
+   "hue": 0.0
+  },
+  "hair": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "exposure": 0.0
+ }
+}

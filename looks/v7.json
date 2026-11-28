@@ -1,0 +1,37 @@
+{
+ "name": "v7",
+ "note": "Native look + uniform-colour production strands on a flat under-layer (variety pass 2026-11-12).",
+ "params": {
+  "w": {
+   "HeroEyes": 1.0,
+   "HeroFill": 1.0,
+   "HeroKey": 1.0,
+   "HeroKicker": 1.0,
+   "HeroRim": 1.0,
+   "emit": 1.0,
+   "set": 1.0,
+   "world": 1.0
+  },
+  "skin": {
+   "value": 1.0,
+   "sat": 1.0,
+   "hue": 0.0
+  },
+  "hair": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "exposure": 0.0
+ },
+ "strands": {
+  "n": 300000,
+  "len": 2.0,
+  "mel": [
+   0.25,
+   0.05
+  ],
+  "shell": 0.7,
+  "uniform": true
+ }
+}

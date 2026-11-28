@@ -1,0 +1,52 @@
+{
+ "name": "v8b",
+ "note": "v8a + darker skin (value 0.72, sat 0.9), stronger mottle, warm-brown hair gain (v4h) + UV strand bump, eyes fixed. 2026-11-12.",
+ "params": {
+  "w": {
+   "HeroEyes": 1.0,
+   "HeroFill": 1.0,
+   "HeroKey": 1.0,
+   "HeroKicker": 1.0,
+   "HeroRim": 1.0,
+   "emit": 1.0,
+   "set": 1.0,
+   "world": 1.0
+  },
+  "skin": {
+   "value": 0.72,
+   "sat": 0.9,
+   "hue": 0.0
+  },
+  "hair": [
+   0.62,
+   0.53,
+   0.44
+  ],
+  "exposure": 0.0
+ },
+ "realism": {
+  "skin": {
+   "mottle": 0.4,
+   "mottle_scale": 120,
+   "freck": 0.35,
+   "freck_scale": 260,
+   "freck_dens": 0.3,
+   "rough_var": 0.12
+  },
+  "cloth": {
+   "knit": 0.18,
+   "knit_scale": 260,
+   "fibre": 0.12,
+   "bump": 0.5,
+   "crease": 0.6
+  },
+  "eyes": {
+   "iris_sat": 0.7,
+   "sclera": 0.85
+  }
+ },
+ "hair_strands": [
+  0.5,
+  "v"
+ ]
+}

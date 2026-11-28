@@ -1,0 +1,41 @@
+{
+ "name": "v5a",
+ "note": "Candidate G: neutral skin, neutral hair gain, production strands. (2026-11-12 candidate pass; base v4s).",
+ "params": {
+  "w": {
+   "HeroEyes": 0.4472644308192359,
+   "HeroFill": 2.7953746804514785,
+   "HeroKey": 1.1598744791177535,
+   "HeroKicker": 0.2360818591126087,
+   "HeroRim": 0.2853511353900074,
+   "emit": 1.9939140660466466,
+   "set": 0.9924518152601907,
+   "world": 1.052748583392732
+  },
+  "skin": {
+   "value": 0.5,
+   "sat": 0.8,
+   "hue": 0.0,
+   "detail": 4.0
+  },
+  "hair": [
+   0.6432690279107813,
+   0.6706000888541119,
+   0.6724532372948281
+  ],
+  "exposure": -0.5593887449962712
+ },
+ "hair_strands": [
+  0.4,
+  "v"
+ ],
+ "strands": {
+  "n": 150000,
+  "len": 1.5,
+  "mel": [
+   0.3,
+   0.05
+  ],
+  "shell": 0.6
+ }
+}

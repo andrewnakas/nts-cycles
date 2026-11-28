@@ -1,0 +1,47 @@
+{
+  "note": "Held-out shots, never trained on. Paths are on the 4050. Every variant gets the identical low-res input. The reference folders come from an import script that is not in this repo (user's Windows laptop, evaluation only).",
+  "shots": [
+    {
+      "name": "zero-day typing (400-459)",
+      "gt": "$HOME/nts-cycles/data/eval/zd/gt",
+      "masks": "$HOME/nts-cycles/data/eval/zd/masks",
+      "cuts": "$HOME/nts-cycles/data/raw/zd_perf_s0/cuts.json",
+      "frames": [
+        400,
+        459
+      ],
+      "static": [
+        400,
+        459
+      ],
+      "variants": {
+        "bicubic": "$HOME/nts-cycles/data/eval/zd/bicubic",
+        "accumulate": "$HOME/nts-cycles/data/eval/zd/accumulate",
+        "nts1": "$HOME/nts-cycles/data/eval/zd/nts1",
+        "ref5 (native in)": "$HOME/nts-cycles/data/eval/zd/ref5_native_i1.0",
+        "ref5 (SR chain)": "$HOME/nts-cycles/data/eval/zd/ref5_chain_i1.0",
+        "ref sr M": "$HOME/nts-cycles/data/eval/zd/ref_sr_M",
+        "guided v2 (oracle guide)": "$HOME/nts-cycles/runs/guided/v2"
+      }
+    },
+    {
+      "name": "calibration (cube + pan)",
+      "gt": "$HOME/cycles-harness/test/gt",
+      "cuts": "$HOME/cycles-harness/test/calib_perf/cuts.json",
+      "frames": [
+        1,
+        48
+      ],
+      "static": [
+        5,
+        24
+      ],
+      "variants": {
+        "bicubic": "$HOME/cycles-harness/test/lowres",
+        "accumulate": "$HOME/nts-cycles/data/eval/calib/accumulate",
+        "nts1": "$HOME/nts-cycles/data/eval/calib/nts1",
+        "ref5": "$HOME/nts-cycles/data/eval/calib/ref5"
+      }
+    }
+  ]
+}

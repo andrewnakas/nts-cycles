@@ -1,0 +1,32 @@
+{
+ "name": "v4hsl",
+ "note": "Warm hair + neutral skin + softer key (key x0.7, fill x1.3). Variant of ref5p2 (2026-11-12 asset/look pass).",
+ "params": {
+  "w": {
+   "HeroEyes": 0.4472644308192359,
+   "HeroFill": 3.633987084586922,
+   "HeroKey": 0.8119121353824275,
+   "HeroKicker": 0.2360818591126087,
+   "HeroRim": 0.2853511353900074,
+   "emit": 1.9939140660466466,
+   "set": 0.9924518152601907,
+   "world": 1.052748583392732
+  },
+  "skin": {
+   "value": 0.5,
+   "sat": 0.8,
+   "hue": 0.0,
+   "detail": 4.0
+  },
+  "hair": [
+   0.62,
+   0.53,
+   0.44
+  ],
+  "exposure": -0.5593887449962712
+ },
+ "hair_strands": [
+  0.4,
+  "v"
+ ]
+}

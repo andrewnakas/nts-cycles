@@ -1,0 +1,15 @@
+{
+ "name": "v11e",
+ "note": "v11e: the episode's own look plus cloth only, about twice v11c's strength, NOT matte. v11d (matte 0.85) took the sheen off but left the sweater near black with no visible knit and a more saturated print: the soft sheen is also what lifts the dark cloth to grey. 2026-11-22.",
+ "only_realism": true,
+ "params": {},
+ "realism": {
+  "cloth": {
+   "knit": 0.3,
+   "knit_scale": 260,
+   "fibre": 0.2,
+   "bump": 1.0,
+   "crease": 0.8
+  }
+ }
+}
