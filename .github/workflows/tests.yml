@@ -18,3 +18,18 @@ jobs:
       - run: pip install -e ".[exr,dev]"
       - run: pytest -q
       - run: python -m nts.tone smoke
+  gpu:
+    # nts/rt's shaders against the numpy accumulator on Mesa's software Vulkan driver (lavapipe): no GPU needed,
+    # and NTS_RT_REQUIRE makes a missing adapter a failure, not a skip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+      - run: pip install -e ".[dev,rt]"
+      - run: pytest -q tests/test_rt_upscaler.py
+        env:
+          NTS_RT_ADAPTER: llvmpipe
+          NTS_RT_REQUIRE: "1"

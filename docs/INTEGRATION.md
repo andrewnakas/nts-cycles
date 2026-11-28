@@ -1,5 +1,8 @@
 # Integration: the buffers a temporal upscaler takes, and where they come from here
 
+This page is the offline side. The real-time upscaler's contract with a game engine (depth buffer encodings, motion
+vector units, projection jitter, the exported shaders) is [`ENGINE.md`](ENGINE.md).
+
 A real-time engine hands its temporal upscaler a set of buffers every frame. An offline renderer can produce the same set, exactly
 and without the estimates a game has to make. This page maps one onto the other and lists what each part of this repo
 reads. Sign conventions are fixed in one place, [`nts/conventions.py`](../nts/conventions.py), and re-checked on
@@ -10,7 +13,7 @@ renders with `baselines/accumulate.py` (`--sample-sign`, `--mv-sign`: with a wro
 | Input | Here | Notes |
 |---|---|---|
 | Colour, render resolution, jittered | `f_####.exr` layer **Image**, scene-linear (after glare and haze) | Multilayer half-float EXR written by `datagen/blender/render_lr.py`. NR-1 itself works on display-referred frames (`f_####.png`); NTS-F and NTS-G read the EXR or the PNG |
-| Depth | layer **Depth.V** | Linear camera distance in scene units, not a hardware z-buffer. Two surfaces count as the same within 5 % (`nts.warp.disocclusion`, `nts.framegen.DEPTH_REL`) |
+| Depth | layer **Depth.V** | Linear camera distance in scene units, not a hardware z-buffer. Two surfaces count as the same within 5 % (`nts.warp.disocclusion`'s default, `nts.framegen.DEPTH_REL`; the accumulator uses its fitted 16.9 %, `conventions.ACCUM`) |
 | Motion vectors | layer **Vector.XY** (to the previous frame), **Vector.ZW** (to the next) | Render pixels, +y up. Image space: `mv = (X, -Y)`, `prev_pos = cur_pos + mv` (`conventions.mv_image`); next-frame motion is `conventions.mv_next_image`. The next-frame half is what NTS-G uses; a real-time engine has no such buffer |
 | Jitter offset | `jitter.json` | Halton(2, 3), applied as a camera lens shift per frame, in render pixels, +y up. Phase count is 8 × (output / render)², the usual guideline for temporal upscalers: 8 (native), 18 (Quality), 24 (Balanced), 32 (Performance), 72 (Ultra Performance). Real-time upscalers usually take the negated offset (the one that undoes the jitter); see the docstring of `nts/conventions.py` |
 | Reset (history invalid) | `cuts.json` | Frames that start a camera cut, from Blender's camera markers. `conventions.resets` adds the first frame and any gap in the frame numbers |

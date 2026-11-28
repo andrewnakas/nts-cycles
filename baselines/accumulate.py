@@ -1,8 +1,9 @@
-"""Analytical temporal upscaler (no network): jitter-aware splat + reprojected, clipped, confidence-weighted history.
+"""Analytical temporal upscaler (no network): this frame's jittered samples + reprojected, clipped, weighted history.
 
 It's the floor NTS-1 must beat and the check that conventions.py is right: with a wrong jitter or MV sign it falls
 apart. It is also the reference the GPU port (nts/rt) is tested against. Per output pixel:
-  - this frame's jittered samples, Gaussian-weighted at their true positions (nts/splat.py);
+  - this frame's samples: the output pixel's position in the jittered render and the 2x2 render pixels around it,
+    Gaussian-weighted by their distance in render pixels (nts/gather.py);
   - the previous output and its weight, warped along the motion (Catmull-Rom; the four corner taps left out and the
     rest renormalised, as a GPU reads it in five filtered lookups), dropped where the depth test finds another surface;
   - the history clamped to the per-channel min/max of the render pixel's 3x3 neighbourhood (Karis 2014), widened
@@ -10,8 +11,9 @@ apart. It is also the reference the GPU port (nts/rt) is tested against. Per out
   - one weighted sum of history, samples and the bilinear frame (the last at a small fixed weight, prior).
 The constants are conventions.ACCUM (fitted by nts/rt/fit.py). Run with Blender's Python (OpenImageIO + OCIO):
   accumulate.py <lr_dir> <out_dir> [--fmt png] [--linear-exr] [--frames a-b] [--sample-sign sx,sy] [--mv-sign sx,sy]
-                [--sigma s] [--expand e] [--wmax w] [--shrink k] [--prior w0] [--rel r]
+                [--foot f] [--expand e] [--wmax w] [--shrink k] [--prior w0] [--rel r]
                 [--history catmull5|catmull|bilinear] [--space rgb|ycocg] [--clip clamp|centre] [--static-expand e]
+                [--depth-test nearest|match]
 --history catmull keeps all 16 Catmull-Rom taps; bilinear samples the history bilinearly. --space ycocg takes the box in
 luma/chroma (YCoCg) instead of RGB; --clip centre moves history along the line to the box's middle until it is inside,
 instead of clamping each channel. --static-expand e widens the box by e >= --expand where the pixel did not move
@@ -19,6 +21,7 @@ instead of clamping each channel. --static-expand e widens the box by e >= --exp
 """
 import os
 import sys
+import warnings
 
 import numpy as np
 from PIL import Image
@@ -27,7 +30,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from nts import conventions as cv  # noqa: E402
 from nts import warp as wp  # noqa: E402
 from nts.io_exr import Sequence  # noqa: E402
-from nts.splat import splat  # noqa: E402
+from nts.gather import gather  # noqa: E402
 from nts.tonemap import Tonemapper  # noqa: E402
 
 
@@ -56,7 +59,9 @@ def minmax_box(rgb_lr, expand, out_hw, space="rgb"):
     lo, hi = win.min(0), win.max(0)
     if expand != 1.0:
         c, r = (lo + hi) * np.float32(0.5), (hi - lo) * np.float32(0.5 * expand)
-        lo, hi = c - r, c + r
+        lo0, lo, hi = lo, c - r, c + r
+        if space == "rgb":  # never widened below zero unless the samples go there (resolve.wgsl says why)
+            lo = np.maximum(lo, np.minimum(lo0, np.float32(0.0)))
     H, W = out_hw
     ys, xs = (np.arange(H) * h) // H, (np.arange(W) * w) // W
     return lo[ys][:, xs], hi[ys][:, xs]
@@ -96,24 +101,34 @@ def warp_catmull(img, mv, corners=True):
 
 class Accumulator:
     def __init__(self, scale, out_hw, wmax=cv.ACCUM["wmax"], expand=cv.ACCUM["expand"], mv_sign=(1.0, 1.0),
-                 sigma=None, prior=cv.ACCUM["prior"], history="catmull5", space="rgb", clip="clamp",
-                 static_expand=None, shrink=cv.ACCUM["shrink"], rel=cv.ACCUM["rel"]):
+                 foot=cv.ACCUM["foot"], prior=cv.ACCUM["prior"], history="catmull5", space="rgb", clip="clamp",
+                 static_expand=None, shrink=cv.ACCUM["shrink"], rel=cv.ACCUM["rel"], depth_test="nearest",
+                 sigma=None):
         """shrink: how fast history weight falls with how far the clip moved it; rel: depth tolerance of the
-        disocclusion test (relative); prior: weight of the bilinear frame in the sum (> 0); sigma: splat footprint in
-        output px (None: conventions.accum_sigma(scale))."""
-        sigma = cv.accum_sigma(scale) if sigma is None else sigma
+        disocclusion test (relative); prior: weight of the bilinear frame in the sum (> 0); foot: footprint of this
+        frame's samples, a Gaussian sigma in render px (nts/gather.py); depth_test: "nearest" compares the nearest of
+        the previous depths under the reprojected footprint, "match" keeps the history if any of them matches.
+        sigma: deprecated (0.2.0's footprint in output px); taken as foot = sigma / scale."""
+        if sigma is not None:
+            warnings.warn("Accumulator(sigma=) is deprecated: use foot= (render px, sigma / scale)", DeprecationWarning,
+                          stacklevel=2)
+            foot = sigma / scale
         assert expand >= 1.0 and prior > 0.0, (expand, prior)  # the box is never narrowed below the samples' min/max
         assert history in ("bilinear", "catmull", "catmull5") and space in ("rgb", "ycocg") and clip in ("clamp", "centre")
         assert static_expand is None or static_expand >= expand, static_expand
+        assert depth_test in ("nearest", "match"), depth_test
+        self.depth_test = depth_test
+        assert foot > 0, foot
+        self.foot = foot
         self.scale, self.hw, self.wmax, self.mv_sign = scale, out_hw, wmax, np.array(mv_sign, np.float32)
-        self.sigma, self.expand, self.prior, self.history = sigma, float(expand), prior, history
+        self.expand, self.prior, self.history = float(expand), prior, history
         self.space, self.clip, self.static_expand = space, clip, static_expand
         self.shrink, self.rel = np.float32(shrink), rel
         self.h = self.w = self.depth = None
 
     def step(self, fr, reject=None):
         """reject: optional (H, W) multiplier in [0, 1] on the history weight (e.g. from a full-res guide's change)."""
-        s, ws = splat(fr.rgb, fr.jitter, self.scale, self.hw, self.sigma)
+        s, ws = gather(fr.rgb, fr.jitter, self.hw, self.foot)
         base = wp.upsample_bilinear(fr.rgb, self.scale, self.hw)
         depth = wp.upsample_nearest(fr.depth, self.scale, self.hw)
         if fr.reset or self.h is None:
@@ -125,7 +140,7 @@ class Accumulator:
             else:
                 hist = warp_catmull(self.h, mv, corners=self.history == "catmull")
             whist = wp.warp(self.w, mv)
-            whist[wp.disocclusion(self.depth, depth, mv, self.rel)] = 0.0
+            whist[wp.disocclusion(self.depth, depth, mv, self.rel, self.depth_test == "match")] = 0.0
             if reject is not None:
                 whist = whist * reject
             lo, hi = minmax_box(fr.rgb, self.expand, self.hw, self.space)
@@ -166,10 +181,11 @@ def main():
     mv_sign = tuple(map(float, arg("--mv-sign", "1,1").split(",")))  # extra sign on top of conventions.MV_SIGN
     span = tuple(map(int, arg("--frames").split("-"))) if arg("--frames") else None
     ow, oh = seq.meta["out"]
-    num = {k: float(arg("--" + k, v)) for k, v in cv.ACCUM.items() if k != "sigma"}
-    num["sigma"] = float(arg("--sigma")) if arg("--sigma") else None
+    num = {k: float(arg("--" + k, v)) for k, v in cv.ACCUM.items()}
+    if arg("--sigma"):  # deprecated: 0.2.0's footprint in output px
+        num["foot"] = float(arg("--sigma")) / seq.scale
     acc = Accumulator(seq.scale, (oh, ow), mv_sign=mv_sign, history=arg("--history", "catmull5"),
-                      space=arg("--space", "rgb"), clip=arg("--clip", "clamp"),
+                      space=arg("--space", "rgb"), clip=arg("--clip", "clamp"), depth_test=arg("--depth-test", "nearest"),
                       static_expand=float(arg("--static-expand")) if arg("--static-expand") else None, **num)
     tm = Tonemapper(*seq.meta["view"])
     for f in seq.frames:

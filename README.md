@@ -20,7 +20,7 @@ the keyframe's view of each bit of surface it shows (its surf pass) and takes th
 | Realism pass (a more photographed look) | **NR-1**, `tools/nr_clip.sh` | Tone per region and shot (no network), ONE generative edit per shot (FLUX.2 klein 4B, Apache-2.0), its added detail carried through the shot by surface identity: every frame finds the keyframe's view of each surface point it shows | In production use (see Results) |
 | Temporal upscaling, Quality / Balanced / Performance / Ultra Performance | **NTS-F**, `nts/pipeline.py` | Jittered temporal accumulation of a low-res render (same ×1.5 / ×1.71 / ×2 / ×3 ladder, `nts.conventions.QUALITY_MODES`), plus a native-res box around the head, so the face is never upscaled | Analytical, no weights. Modes are `render_lr.py` render modes |
 | Anti-aliasing at native resolution | NTS-F at ×1 (`native_aa` render mode) | Native resolution, jittered, accumulated: anti-aliasing only | Analytical |
-| Temporal upscaling in real time, on the GPU | **nts/rt** (new), [`docs/REALTIME.md`](docs/REALTIME.md) | NTS-F's accumulator as two WGSL compute passes (wgpu), fed what a game gives its upscaler; constants fitted to native renders | New. 0.44 ms per frame at 1080p Performance on an RTX 4050 laptop GPU and a GTX 1080; not yet in a game engine |
+| Temporal upscaling in real time, on the GPU | **nts/rt** (new), [`docs/REALTIME.md`](docs/REALTIME.md) | NTS-F's accumulator as two WGSL compute passes (wgpu), fed what a game gives its upscaler; constants fitted to native renders | New. 0.44 ms per frame at 1080p Performance on an RTX 4050 laptop GPU and a GTX 1080; runs on Metal, Vulkan and in browsers (WebGPU); not yet in a game engine: [`docs/ENGINE.md`](docs/ENGINE.md) is the contract for one |
 | Frame generation | **NTS-G**, `nts/framegen.py` (new) | 2× in-between frames. Surface mode: every pixel of the new frame finds its own bit of surface in the two neighbours, from a cheap surface-ID render of that frame. Vector mode: the neighbours' colours carried forward along the renderer's own two-way motion, nearest surface first | New. On at140 (58 frames, mean PSNR against the real rendered frame): surface mode 44.21 dB, vector mode 43.61 dB, blending the neighbours 36.12 dB; surface mode is ahead on 51 of the 58 frames. [Weak spot](docs/GALLERY.md#frame-generation-nts-g): fast, motion-blurred, defocused thin objects |
 | Denoising | none | Use Cycles' own denoiser (OpenImageDenoise / OptiX) in the render | n/a |
 | Learned upscaler | none | Upscaling here is NTS-F, which has no network. The recurrent networks we trained in research are not part of this repo | n/a |
@@ -173,7 +173,7 @@ scoreboard (`nr_board.py`), and a blind A/B page builder (`abtest.py`).
 
 ## Tests
 
-`pytest` (or each file as a script: `python tests/test_speed_equivalence.py`). Covered: the jitter / splat / warp
+`pytest` (or each file as a script: `python tests/test_speed_equivalence.py`). Covered: the jitter / gather / warp
 conventions, the byte-exactness of every sped-up primitive against the code it replaced, surface correspondence, frame
 generation (both modes) and the quality-mode ladder on synthetic scenes, and `python -m nts.tone smoke`.
 `tests/test_metrics.py` needs the calibration renders and skips without them.

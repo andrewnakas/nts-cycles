@@ -3,11 +3,11 @@
 Each variant upscales every shot from its first frame and is scored as nts/rt/fit.py scores (8-bit PSNR, tErr,
 static flicker through Blender's view transform), per shot and as the mean over the fit shots and the held-out ones.
 A variant is "base" or comma-separated key=value pairs: RTUpscaler switches (history, space, clip), the
-build (build=compat), selfguide=1 (SelfGuided, full packs only, with alb_wmax, alb_expand, alb_sigma, eps) and
-constants (sigma, expand, static_expand, wmax, shrink, prior, rel); --start sets constants shared by every variant.
+build (build=compat), selfguide=1 (SelfGuided, full packs only, with alb_wmax, alb_expand, alb_foot, eps) and
+constants (foot, expand, static_expand, wmax, shrink, prior, rel); --start sets constants shared by every variant.
 
 Run: python -m nts.rt.ab <pack_dir> ... [--hold <pack_dir>,...] --variants "base;history=catmull;space=ycocg,clip=centre"
-         [--start sigma=0.47,...] [--frames 32] [--warm 8] [--build fast] [--adapter NAME] [--json ab.jsonl]
+         [--start foot=0.25,...] [--frames 32] [--warm 8] [--build fast] [--adapter NAME] [--json ab.jsonl]
 """
 import json
 import os
@@ -23,8 +23,8 @@ from nts.rt.fit import DEFAULTS, VIEW, Shot, score  # noqa: E402
 from nts.tonemap import Tonemapper  # noqa: E402
 
 OPTS = {"--hold", "--variants", "--start", "--frames", "--warm", "--build", "--adapter", "--json"}
-SWITCHES = {"history", "space", "clip"}
-FLAGS = {"selfguide"}  # selfguide=1: SelfGuided (needs full packs); its constants alb_wmax, alb_expand, alb_sigma, eps
+SWITCHES = {"history", "space", "clip", "depth_test"}
+FLAGS = {"selfguide"}  # selfguide=1: SelfGuided (needs full packs); its constants alb_wmax, alb_expand, alb_foot, eps
 
 
 def parse(v, start, build):

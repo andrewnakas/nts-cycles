@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nts/rt WebGPU check</title>
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161618; --fg: #ececee; --muted: #9a9aa0; } }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; margin: 24px 16px; }
+  pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Menlo, monospace; }
+  p { color: var(--muted); max-width: 70ch; }
+</style>
+</head>
+<body>
+<h1>nts/rt WebGPU check</h1>
+<p>The exported shaders compiled by this browser's WebGPU, run by host.js from interface.json alone on the test
+sequence in vectors.bin, and compared frame by frame with the frames wgpu made from the same inputs
+(<code>python -m nts.rt.webcheck</code>).</p>
+<pre id="out">running…</pre>
+<script type="module">
+import {Host} from "./host.js";
+
+const out = document.getElementById("out");
+const half = (u) => {  // IEEE half bits -> number
+  const s = u & 0x8000 ? -1 : 1, e = (u >> 10) & 31, m = u & 1023;
+  if (e === 0) return s * m * 2 ** -24;
+  if (e === 31) return m ? NaN : s * Infinity;
+  return s * (1 + m / 1024) * 2 ** (e - 15);
+};
+
+async function run() {
+  if (!navigator.gpu) throw new Error("no WebGPU in this browser");
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) throw new Error("no WebGPU adapter");
+  const device = await adapter.requestDevice();
+  const errors = [];
+  device.onuncapturederror = (e) => errors.push(e.error.message);
+  const meta = await (await fetch("vectors.json")).json();
+  const bin = await (await fetch("vectors.bin")).arrayBuffer();
+  const [H, W] = meta.out_hw, [h, w] = meta.in_hw;
+  device.pushErrorScope("validation");
+  const host = await Host.create(device, "./", [H, W], [h, w], {depth: meta.depth, mvScale: meta.mv_scale});
+  const compile = {};
+  for (const [name, m] of Object.entries(host.modules)) {
+    compile[name] = (await m.getCompilationInfo()).messages.map((x) => `${x.type} ${x.lineNum}:${x.linePos} ${x.message}`);
+  }
+  const setupError = await device.popErrorScope();
+  if (setupError) throw new Error(`setup: ${setupError.message}`);
+  const U = GPUTextureUsage;
+  const tex = {
+    color: device.createTexture({size: [w, h], format: "rgba16float", usage: U.TEXTURE_BINDING | U.COPY_DST}),
+    depth: device.createTexture({size: [w, h], format: "r32float", usage: U.TEXTURE_BINDING | U.COPY_DST}),
+    motion: device.createTexture({size: [w, h], format: "rg32float", usage: U.TEXTURE_BINDING | U.COPY_DST}),
+  };
+  const f32 = meta.hist_format === "rgba32float";
+  const bpr = W * (f32 ? 16 : 8);  // W is a multiple of 32: the row pitch is a multiple of 256
+  const rb = device.createBuffer({size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ});
+  const frames = [];
+  for (const f of meta.frames) {
+    device.queue.writeTexture({texture: tex.color}, bin, {offset: f.color, bytesPerRow: w * 8}, [w, h]);
+    device.queue.writeTexture({texture: tex.depth}, bin, {offset: f.depth, bytesPerRow: w * 4}, [w, h]);
+    device.queue.writeTexture({texture: tex.motion}, bin, {offset: f.motion, bytesPerRow: w * 8}, [w, h]);
+    const enc = device.createCommandEncoder();
+    const hist = host.frame(enc, tex.color, tex.depth, tex.motion, f.offset, f.reset);
+    enc.copyTextureToBuffer({texture: hist}, {buffer: rb, bytesPerRow: bpr}, [W, H]);
+    device.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ);
+    const got = f32 ? new Float32Array(rb.getMappedRange().slice(0)) : new Uint16Array(rb.getMappedRange().slice(0));
+    rb.unmap();
+    const ref = f32 ? new Float32Array(bin, f.ref, W * H * 4) : new Uint16Array(bin, f.ref, W * H * 4);
+    const val = f32 ? (x) => x : half;
+    let same = 0, n = 0, maxd = 0, se = 0, peak = 0, finite = true;
+    for (let i = 0; i < W * H; i++) {
+      for (let c = 0; c < 3; c++) {
+        const a = val(got[4 * i + c]), b = val(ref[4 * i + c]);
+        if (!Number.isFinite(a)) finite = false;
+        const d = Math.abs(a - b);
+        same += got[4 * i + c] === ref[4 * i + c] ? 1 : 0;
+        n += 1; maxd = Math.max(maxd, d); se += d * d; peak = Math.max(peak, Math.abs(b));
+      }
+    }
+    const mse = se / n;
+    frames.push({frame: f.index, identical: +(same / n).toFixed(5), max_abs_diff: +maxd.toPrecision(3),
+                 psnr_db: mse === 0 ? 999 : +(10 * Math.log10(peak * peak / mse)).toFixed(2), finite});  // 999: identical
+  }
+  const info = adapter.info || {};
+  return {adapter: {vendor: info.vendor, architecture: info.architecture, description: info.description},
+          userAgent: navigator.userAgent, build: host.spec.build, sizes: {render: [w, h], display: [W, H]},
+          compile, errors, frames,
+          worst_psnr_db: Math.min(...frames.map((x) => x.psnr_db)), all_finite: frames.every((x) => x.finite)};
+}
+
+// the summary also goes back to the server as a request line (any browser, no automation: webcheck --serve logs it)
+const report = (x) => fetch("report?" + encodeURIComponent(JSON.stringify(x))).catch(() => {});
+run().then((r) => {
+  window.result = r; out.textContent = JSON.stringify(r, null, 2); document.title = "done";
+  report({ua: r.userAgent, adapter: r.adapter, build: r.build, compile: r.compile, errors: r.errors,
+          worst_psnr_db: r.worst_psnr_db, all_finite: r.all_finite,
+          min_identical: Math.min(...r.frames.map((f) => f.identical)),
+          max_abs_diff: Math.max(...r.frames.map((f) => f.max_abs_diff))});
+}, (e) => {
+  window.result = {error: String(e)}; out.textContent = String(e); document.title = "failed";
+  report({ua: navigator.userAgent, error: String(e)});
+});
+</script>
+</body>
+</html>

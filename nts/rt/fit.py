@@ -11,7 +11,7 @@ never searched on.
 
 Data: nts/datasets/pack.py folders (lr.npy, gt.npy, meta.json); lr.npy may hold only rgb, depth, mv x, mv y.
 Run: python -m nts.rt.fit <pack_dir> ... [--hold <pack_dir>,<pack_dir>] [--frames 40] [--warm 8] [--build fast]
-         [--params sigma,expand,wmax,shrink,prior,rel] [--start sigma=0.3,...] [--rounds 3] [--min-gain 0.005]
+         [--params foot,expand,wmax,shrink,prior,rel] [--start foot=0.25,...] [--rounds 3] [--min-gain 0.005]
          [--stab 3]
          [--adapter NAME] [--log fit.jsonl] [--out fit.json] [--opts history=catmull,space=ycocg,clip=centre]
 --opts are RTUpscaler's design switches, held fixed (not searched); --rounds 0 just scores --start on the fit and
@@ -36,9 +36,11 @@ from nts.tonemap import Tonemapper  # noqa: E402
 
 DEFAULTS = dict(FITTED)  # the search starts from the last fit (the first one started from sigma 0.47, expand 1,
 #                          wmax 12, shrink 4, prior 0.03, rel 0.05)
-STEPS = dict(sigma=1.25, expand=1.15, wmax=1.4, shrink=1.4, prior=1.6, rel=1.5)  # multiplicative search steps
-LIMITS = dict(sigma=(0.1, 1.5), expand=(1.0, 3.0), wmax=(2.0, 64.0), shrink=(0.05, 20.0), prior=(0.002, 2.0),
-              rel=(0.005, 0.5))  # expand never below 1: the box is never shrunk below the samples' min/max
+STEPS = dict(foot=1.25, expand=1.15, wmax=1.4, shrink=1.4, prior=1.6, rel=1.5)  # multiplicative steps
+LIMITS = dict(foot=(0.05, 0.8), expand=(1.0, 3.0), wmax=(2.0, 64.0), shrink=(0.05, 20.0),
+              prior=(0.002, 2.0), rel=(0.005, 0.5))  # expand never below 1: the box is never shrunk below the samples'
+#                                                     min/max; rel is capped: a looser depth test lets ghosts through
+
 VIEW = ("AgX", "AgX - Punchy", 0.3499999940395355)
 
 
@@ -80,7 +82,7 @@ def score(shots, params, dev, build, tm, opts=None):
     opts = dict(opts or {})
     selfg = opts.pop("selfguide", False)
     for sh in shots:
-        if selfg:  # params may hold the albedo upscaler's alb_wmax, alb_expand, alb_sigma, and eps
+        if selfg:  # params may hold the albedo upscaler's alb_wmax, alb_expand, alb_foot, and eps
             up = SelfGuided(sh.scale, sh.hw, build=build, dev=dev, **params, **opts)
         else:
             up = RTUpscaler(sh.scale, sh.hw, build=build, dev=dev, **params, **opts)
@@ -135,6 +137,17 @@ def main():
     print(f"fit: {len(fit)} shots, {len(hold)} held out, frames {warm}-{n - 1} scored, {build} build {opts} on {name} "
           f"(loaded in {time.time() - t0:.0f} s)", flush=True)
 
+    res = search(fit, hold, best, names, dev, build, tm, opts, int(arg("--rounds", 3)), min_gain, stab, log)
+    res.update(adapter=name, frames=[warm, n])
+    print("best:", " ".join(f"{k}={v:.4g}" for k, v in res["best"].items()), f"({(time.time() - t0) / 60:.0f} min)")
+    if arg("--out"):
+        json.dump(res, open(arg("--out"), "w"), indent=1)
+
+
+def search(fit, hold, best, names, dev, build, tm, opts, rounds=3, min_gain=0.005, stab=3.0, log=None):
+    """Coordinate search from `best` over the constants in `names`, scored on the fit shots (any objects with the
+    Shot interface); the held-out shots are scored at the start and the end only. Returns the result dict."""
+    best = dict(best)
     seen = {}
 
     def run(p, tag):
@@ -156,7 +169,7 @@ def main():
     b = run(best, "start")
     first = b
     steps = dict(STEPS)
-    for rnd in range(int(arg("--rounds", 3))):
+    for rnd in range(rounds):
         moved = False
         for k in names:
             for d in (steps[k], 1 / steps[k]):
@@ -174,16 +187,14 @@ def main():
             steps = {k: v ** 0.5 for k, v in steps.items()}  # nothing helped: finer steps
     res = dict(start=start, best=best, fit_start={k: first[k] for k in ("psnr", "terr", "flicker")},
                fit_best={k: b[k] for k in ("psnr", "terr", "flicker")}, fit_rows=b["rows"],
-               shots=[s.name for s in fit], build=build, opts=opts, frames=[warm, n], adapter=name)
+               shots=[s.name for s in fit], build=build, opts=opts)
     if hold:
         hs = score(hold, start, dev, build, tm, opts)
         hb = hs if best == start else score(hold, best, dev, build, tm, opts)
         res.update(hold_start=hs, hold_best=hb)
         for tag, r in (("held out, start", hs), ("held out, best", hb)):
             print(f"  {tag:<28} psnr {r['psnr']:.3f}  tErr {r['terr']:.4f}  flicker {r['flicker']:.4f}")
-    print("best:", " ".join(f"{k}={v:.4g}" for k, v in best.items()), f"({(time.time() - t0) / 60:.0f} min)")
-    if arg("--out"):
-        json.dump(res, open(arg("--out"), "w"), indent=1)
+    return res
 
 
 OPTS = {"--hold", "--frames", "--warm", "--build", "--params", "--start", "--rounds", "--min-gain", "--adapter",

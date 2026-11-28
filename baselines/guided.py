@@ -3,7 +3,7 @@
 Offline we can render what a game can't afford: a full-res albedo/normal/depth pass. Shading (radiance / albedo) is
 smooth, so upscale only that with the temporal accumulator, then multiply by the full-res albedo:
     shade_lr = rgb_lr / (albedo_lr + eps)
-    shade_hr = Accumulator(shade_lr)               jitter splat + reprojected, clipped history (baselines/accumulate.py)
+    shade_hr = Accumulator(shade_lr)               jittered samples + reprojected, clipped history (baselines/accumulate.py)
     out      = shade_hr * (albedo_hr + eps)
 Pores, fabric weave and screen text then come from the albedo render (exact), and the network-free accumulator only
 has to carry lighting. Emission and glossy reflections aren't albedo-modulated, so eps keeps dark-albedo pixels sane.
@@ -34,7 +34,7 @@ Measured (2026-11-27, zero-day 400-459, guide = native passes): --reject 0.15 wi
   --reject-face has not been measured with the current accumulator.
   Tried and dropped: normal-map detail regression, albedo-mismatch fallback, skin-albedo blur.
 
-Run: guided.py <lr_dir> <guide_dir> <out_dir> [--eps 0.03] [--frames a-b] [--sigma s] [--expand e] [--wmax w]
+Run: guided.py <lr_dir> <guide_dir> <out_dir> [--eps 0.03] [--frames a-b] [--foot f] [--expand e] [--wmax w]
                [--fallback 0.15] [--skin-blur 2] [--reject 0.1] [--reject-face 0.03] [--guide-taa 0.2]
                [--lr-albedo <dir>]   low-res albedo from another render (e.g. an Eevee guide at the input's jitter),
                                      so demodulation and remodulation use the same renderer's albedo
@@ -114,7 +114,9 @@ def main():
     span = tuple(map(int, arg("--frames").split("-"))) if arg("--frames") else None
     ow, oh = seq.meta["out"]
     num = {k: float(arg("--" + k, cv.ACCUM[k])) for k in ("expand", "wmax")}
-    num["sigma"] = float(arg("--sigma")) if arg("--sigma") else None  # None: conventions.accum_sigma(scale)
+    num["foot"] = float(arg("--foot", cv.ACCUM["foot"]))  # render px
+    if arg("--sigma"):  # deprecated: 0.2.0's footprint in output px
+        num["foot"] = float(arg("--sigma")) / seq.scale
     acc = Accumulator(seq.scale, (oh, ow), **num)
     tau = float(arg("--fallback")) if arg("--fallback") else None
     skin_blur = int(arg("--skin-blur", 0))

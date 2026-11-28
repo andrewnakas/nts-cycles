@@ -42,7 +42,7 @@ class Upscaler:
         self.hw, self.self_guide = (oh, ow), self_guide
         self.acc = Accumulator(seq.scale, self.hw)
         # albedo: no lighting noise, so a long history and a clamp loose enough to keep sub-pixel texture
-        self.alb = Accumulator(seq.scale, self.hw, wmax=32.0, expand=2.0, sigma=0.5) if self_guide else None
+        self.alb = Accumulator(seq.scale, self.hw, wmax=32.0, expand=2.0, foot=0.5 / seq.scale) if self_guide else None
 
     def step(self, fr):
         if not self.self_guide or fr.albedo is None:
@@ -90,7 +90,7 @@ class Roi:
                    mv=cv.mv_image(crop(stack(ch, "Vector.X", "Vector.Y"))), jitter=(0.0, 0.0),
                    reset=reset or box != self.box)
         if fr.reset or self.acc is None:
-            self.acc = Accumulator(1.0, rgb.shape[:2], wmax=self.wmax, expand=1.0, sigma=0.3)
+            self.acc = Accumulator(1.0, rgb.shape[:2], wmax=self.wmax, expand=1.0, foot=0.3)
             self.prev_alb = None
         rej = None
         if self.prev_alb is not None:  # a surface whose albedo changed (lips, lids, new hair) keeps no history

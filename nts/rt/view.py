@@ -8,7 +8,10 @@ Controls: move the mouse to move the split; space pauses; right arrow steps one 
 the pointer; 0 resets the zoom; r restarts the clip (the history starts over, as on a cut).
 
 Run: python -m nts.rt.view <pack_dir> [--frames N] [--build fast|compat] [--zoom 1] [--fps 30] [--exposure 0.35]
-         [--start sigma=0.47,prior=0.03] [--opts history=catmull5]
+         [--start foot=0.25,prior=0.03] [--opts history=catmull5]
+     python -m nts.rt.view --scene pan|dolly|strafe|orbit|still|fast|cut [--mode <conventions.QUALITY_MODES key>]
+         [--out 1080x1920] [--frames 96]   the raster test scene drawn live at render size and upscaled the way an
+         engine does it (nts/rt/scene.py: its depth buffer, UV motion and projection jitter, through dispatch())
      python -m nts.rt.view <pack_dir> --record out.mp4 [--size 1080x1080] [--zoom 2] [--center x,y] [--loops 2]
 --record renders off screen (no window) and pipes the frames to ffmpeg, with the split sweeping across once per loop.
 Data: an nts/datasets/pack.py folder (lr.npy with 12 channels, or only rgb, depth, mv x, mv y; meta.json).
@@ -26,6 +29,7 @@ import wgpu
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from baselines.accumulate import arg  # noqa: E402
+from nts import conventions as cv  # noqa: E402
 from nts.io_exr import Frame  # noqa: E402
 from nts.rt import gpu  # noqa: E402
 from nts.rt.upscaler import STRIDE, Inputs, RTUpscaler  # noqa: E402
@@ -102,7 +106,7 @@ class Player:
             inp = Inputs(self.up)
             self.up.upload(inp, fr)
             self.inputs.append(inp)
-            dev.queue.write_buffer(self.up.ubuf, i * STRIDE, self.up.params(fr.jitter, fr.reset))
+            dev.queue.write_buffer(self.up.ubuf, i * STRIDE, self.up.params(cv.sample_offset(*fr.jitter), fr.reset))
         self.timer = gpu.Timer(dev, 2)
         self.ubuf = dev.create_buffer(size=VSTRUCT.size, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
         self.lin = dev.create_sampler(mag_filter="linear", min_filter="linear")
@@ -146,6 +150,81 @@ class Player:
             t = self.timer.read(2)
             self.ms = None if t is None else float(t.sum())
 
+    @property
+    def n(self):
+        return len(self.frames)
+
+
+class ScenePlayer:
+    """The raster test scene as a game would run it: every shown frame is drawn at render size with this frame's
+    jitter, then upscaled by dispatch() reading the scene's own colour target, depth buffer and motion target."""
+
+    def __init__(self, dev, shot, out_hw, scale, fmt, n=96, build="fast", **kw):
+        from nts.rt.scene import NEAR, Renderer, render_hw
+        from nts.rt.upscaler import depth_device, motion_scale
+        self.dev, self.shot, self.out, self.frames_n = dev, shot, tuple(out_hw), n
+        self.in_hw = render_hw(self.out, scale)
+        self.r = Renderer(dev)
+        self.up = RTUpscaler(scale, self.out, build=build, dev=dev, depth=depth_device(NEAR),
+                             mv_scale=motion_scale("uv", "previous", self.in_hw), **kw)
+        self.jit = cv.jitter_seq(n, cv.jitter_phases(self.in_hw[0]))
+        self.timer = gpu.Timer(dev, 2)
+        self.ubuf = dev.create_buffer(size=VSTRUCT.size, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
+        self.lin = dev.create_sampler(mag_filter="linear", min_filter="linear")
+        self.nearest = dev.create_sampler()
+        m = dev.create_shader_module(code=DISPLAY)
+        self.pipe = dev.create_render_pipeline(
+            layout="auto", vertex={"module": m, "entry_point": "vs", "buffers": []},
+            primitive={"topology": wgpu.PrimitiveTopology.triangle_list},
+            fragment={"module": m, "entry_point": "fs", "targets": [{"format": fmt}]})
+        self.f, self.ms, self.rt = -1, None, None
+
+    @property
+    def n(self):
+        return self.frames_n
+
+    def frame(self, view, target, advance=1, restart=False):
+        if restart:
+            self.f = -1
+        if advance or self.f < 0:
+            self.f = (self.f + advance) % self.n if self.f >= 0 else 0
+            off = cv.sample_offset(*self.jit[self.f])
+            self.rt, _ = self.r.render(self.shot, self.f, self.in_hw, off, lod=self.in_hw[1] / self.out[1],
+                                       read=False)
+            enc = self.dev.create_command_encoder()
+            reset = self.f == 0 or (self.shot == "cut" and self.f == 24)
+            self.up.dispatch(enc, self.rt["color"], self.rt["depth"], self.rt["motion"], off, reset=reset,
+                             timer=self.timer)
+        else:
+            enc = self.dev.create_command_encoder()
+        self.dev.queue.write_buffer(self.ubuf, 0, VSTRUCT.pack(*view))
+        group = self.dev.create_bind_group(layout=self.pipe.get_bind_group_layout(0), entries=[
+            {"binding": 0, "resource": {"buffer": self.ubuf, "offset": 0, "size": VSTRUCT.size}},
+            {"binding": 1, "resource": self.up.output.create_view()},
+            {"binding": 2, "resource": self.rt["color"].create_view()},
+            {"binding": 3, "resource": self.lin}, {"binding": 4, "resource": self.nearest}])
+        p = enc.begin_render_pass(color_attachments=[{"view": target, "load_op": wgpu.LoadOp.clear,
+                                                      "store_op": wgpu.StoreOp.store, "clear_value": (0, 0, 0, 1)}])
+        p.set_pipeline(self.pipe)
+        p.set_bind_group(0, group)
+        p.draw(3)
+        p.end()
+        self.dev.queue.submit([enc.finish()])
+        if advance:
+            t = self.timer.read(2)
+            self.ms = None if t is None else float(t.sum())
+
+
+def player(dev, fmt):
+    """The clip player or the live scene, from the command line."""
+    if arg("--scene"):
+        H, W = map(int, arg("--out", "1080x1920").split("x"))
+        scale = cv.OUT[0] / cv.QUALITY_MODES[arg("--mode", "performance")][0]  # both [0] are heights
+        return ScenePlayer(dev, arg("--scene"), (H, W), scale, fmt, int(arg("--frames", 96)),
+                           build=arg("--build", "fast"), **consts())
+    frames, scale = load(sys.argv[1], int(arg("--frames")) if arg("--frames") else None)
+    return Player(dev, frames, scale, fmt, build=arg("--build", "fast"), **consts())
+
 
 def consts():
     kw = {}
@@ -156,10 +235,10 @@ def consts():
     return kw
 
 
-def record(dev, frames, scale, path):
+def record(dev, path):
     W, H = map(int, arg("--size", "1080x1080").split("x"))
     fmt = "rgba8unorm"
-    pl = Player(dev, frames, scale, fmt, build=arg("--build", "fast"), **consts())
+    pl = player(dev, fmt)
     oh, ow = pl.out
     zoom = float(arg("--zoom", 1))
     cx, cy = map(float, arg("--center", f"{ow / 2},{oh / 2}").split(","))
@@ -169,7 +248,7 @@ def record(dev, frames, scale, path):
     ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s",
                            f"{W}x{H}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf",
                            "16", path], stdin=subprocess.PIPE)
-    loops, n, ms = int(arg("--loops", 2)), len(frames), []
+    loops, n, ms = int(arg("--loops", 2)), pl.n, []
     for k in range(loops * n):
         split = W * (0.15 + 0.7 * (0.5 - 0.5 * math.cos(2 * math.pi * (k % n) / n)))  # sweeps across and back
         pl.frame((split, float(arg("--exposure", 0.35)), zoom, 0, cx, cy, W, H, ow, oh, 0, 0), tex.create_view())
@@ -183,17 +262,21 @@ def record(dev, frames, scale, path):
           f"{np.median(ms):.3f} ms (one frame per submit, with a readback each frame)" if ms else f"-> {path}")
 
 
-def window(dev, adapter, frames, scale):
+def window(dev, adapter):
     from rendercanvas.glfw import RenderCanvas, loop
 
-    oh, ow = (round(frames[0].depth.shape[0] * scale), round(frames[0].depth.shape[1] * scale))
+    if arg("--scene"):
+        oh, ow = map(int, arg("--out", "1080x1920").split("x"))
+    else:
+        frames, scale = load(sys.argv[1], 1)
+        oh, ow = (round(frames[0].depth.shape[0] * scale), round(frames[0].depth.shape[1] * scale))
     fit = min(1400 / ow, 900 / oh, 1.0)
     canvas = RenderCanvas(size=(int(ow * fit), int(oh * fit)), title="nts.rt", update_mode="continuous",
                           max_fps=float(arg("--fps", 30)), vsync=False)
     ctx = canvas.get_wgpu_context()
     fmt = ctx.get_preferred_format(adapter)
     ctx.configure(device=dev, format=fmt)
-    pl = Player(dev, frames, scale, fmt, build=arg("--build", "fast"), **consts())
+    pl = player(dev, fmt)
     st = dict(split=None, zoom=float(arg("--zoom", 1)), cx=ow / 2, cy=oh / 2, pause=False, step=0, restart=False,
               t=time.perf_counter(), shown=0, ms=[])
 
@@ -240,7 +323,7 @@ def window(dev, adapter, frames, scale):
         now = time.perf_counter()
         if now - st["t"] > 0.5:
             ms = f"{np.median(st['ms']):.3f} ms" if st["ms"] else "n/a"
-            canvas.set_title(f"nts.rt {pl.up.build}  frame {pl.f}/{len(frames)}  GPU {ms} (prep + resolve)  "
+            canvas.set_title(f"nts.rt {pl.up.build}  frame {pl.f}/{pl.n}  GPU {ms} (prep + resolve)  "
                              f"{st['shown'] / (now - st['t']):.0f} fps shown  |  left: bilinear  right: nts.rt  "
                              f"{'(paused)' if st['pause'] else ''}")
             st.update(t=now, shown=0, ms=[])
@@ -250,14 +333,13 @@ def window(dev, adapter, frames, scale):
 
 def main():
     a = sys.argv
-    if len(a) < 2 or a[1].startswith("-"):
+    if len(a) < 2 or (a[1].startswith("-") and not arg("--scene")):
         sys.exit(__doc__)
-    frames, scale = load(a[1], int(arg("--frames")) if arg("--frames") else None)
     dev, adapter_name = gpu.device(arg("--adapter"))
     if arg("--record"):
-        record(dev, frames, scale, arg("--record"))
+        record(dev, arg("--record"))
     else:
-        window(dev, dev.adapter, frames, scale)
+        window(dev, dev.adapter)
 
 
 if __name__ == "__main__":

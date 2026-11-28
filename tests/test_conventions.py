@@ -1,4 +1,4 @@
-"""Synthetic checks of the splat / warp / jitter plumbing. Plain functions: run with pytest, or `python tests/test_conventions.py`
+"""Synthetic checks of the gather / warp / jitter plumbing. Plain functions: run with pytest, or `python tests/test_conventions.py`
 (the 4050's Blender Python has no pytest).
 
 Blender's own signs (MV_SIGN, SAMPLE_SIGN) can't be proven synthetically; baselines/accumulate.py --sample-sign sweeps
@@ -12,7 +12,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from nts import conventions as cv  # noqa: E402
 from nts import warp as wp  # noqa: E402
-from nts.splat import splat  # noqa: E402
+from nts.gather import gather  # noqa: E402
 
 
 def pattern(x, y):
@@ -21,9 +21,17 @@ def pattern(x, y):
                      0.5 + 0.3 * np.cos(x * 0.47 - y * 0.21)], axis=-1).astype(np.float32)
 
 
+def scene_xy(h, w, jitter, scale):
+    """Where each pixel of a jittered h x w render samples the scene, in output-pixel coordinates (centre of pixel i is
+    i + 0.5): for making synthetic renders."""
+    ox, oy = cv.sample_offset(*jitter)
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    return np.stack([(xs + 0.5 + ox) * scale, (ys + 0.5 + oy) * scale], axis=-1)
+
+
 def render_lr(h, w, scale, jitter, shift=(0.0, 0.0)):
     """Sample the pattern where conventions say a jittered low-res pixel samples (point samples, no filter)."""
-    p = cv.sample_positions_hr(h, w, *jitter, scale)
+    p = scene_xy(h, w, jitter, scale)
     return pattern(p[..., 0] - shift[0], p[..., 1] - shift[1])
 
 
@@ -38,32 +46,31 @@ def test_resets():
     assert cv.resets([1, 2, 3, 5, 6, 25, 26], [1, 25]) == [True, False, False, True, False, True, False]
 
 
-def test_sample_positions_follow_sign():
-    p = cv.sample_positions_hr(2, 2, 0.25, 0.25, 2.0)
+def test_sample_offset_follows_sign():
     ox, oy = cv.sample_offset(0.25, 0.25)
-    assert np.allclose(p[0, 0], [(0.5 + ox) * 2, (0.5 + oy) * 2])
     assert ox == 0.25 * cv.SAMPLE_SIGN[0] and oy == 0.25 * cv.SAMPLE_SIGN[1]
 
 
-def test_splat_static_converges():
-    """Static scene, 32 jitter phases: the splat canvas must beat bilinear upsampling of one frame by a wide margin."""
+def test_gather_static_converges():
+    """Static scene, 32 jitter phases: the gathered samples, summed over the phases, must beat bilinear upsampling of
+    one frame by a wide margin."""
     h, w, s = 24, 16, 2.0
     H, W = int(h * s), int(w * s)
     ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
     gt = pattern(xs + 0.5, ys + 0.5)
     acc, wsum = np.zeros((H, W, 3), np.float32), np.zeros((H, W), np.float32)
     for j in cv.jitter_seq(32, 32):
-        a, b = splat(render_lr(h, w, s, j), j, s, (H, W))
+        a, b = gather(render_lr(h, w, s, j), j, (H, W), cv.ACCUM["foot"])
         acc, wsum = acc + a, wsum + b
     rec = acc / wsum[..., None]
     up = wp.upsample_bilinear(render_lr(h, w, s, (0.0, 0.0)), s, (H, W))
     inner = (slice(2, -2), slice(2, -2))
     e_rec, e_up = np.abs(rec - gt)[inner].mean(), np.abs(up - gt)[inner].mean()
     assert e_rec < 0.5 * e_up, (e_rec, e_up)
-    # the wrong sign must be clearly worse: proves the splat really uses the offsets
+    # the wrong sign must be clearly worse: proves the gather really uses the offsets
     wrong = np.zeros_like(acc)
     for j in cv.jitter_seq(32, 32):
-        a, _ = splat(render_lr(h, w, s, j), (-j[0], -j[1]), s, (H, W))
+        a, _ = gather(render_lr(h, w, s, j), (-j[0], -j[1]), (H, W), cv.ACCUM["foot"])
         wrong += a
     e_wrong = np.abs(wrong / wsum[..., None] - gt)[inner].mean()
     assert e_wrong > 1.5 * e_rec, (e_wrong, e_rec)

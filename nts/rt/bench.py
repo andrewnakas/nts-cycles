@@ -100,7 +100,7 @@ def case(dev, name, frames, W, H, mode, build, n, k, wg, paced, mem_mb, entry="c
     alb = None
     if selfg:  # SelfGuided: the albedo history's own two passes, then a GPU copy into the guided upscaler's input
         alb = RTUpscaler(W / rw, (H, W), build=build, dev=dev, slots=k + 1, wg=wg, in_hw=(rh, rw), entry=entry,
-                         wmax=32.0, expand=2.0, sigma=0.5, **{q: v for q, v in opts.items() if q in SelfGuided.SHARED})
+                         wmax=32.0, expand=2.0, foot=0.25, **{q: v for q, v in opts.items() if q in SelfGuided.SHARED})
         assert alb.b["hist"] == up.b["color"], "self-guided timing needs the albedo history in the input's format"
     per_f = 4 if alb else 2  # timed passes per frame
     inputs, ainputs = [], []
@@ -110,14 +110,14 @@ def case(dev, name, frames, W, H, mode, build, n, k, wg, paced, mem_mb, entry="c
         fr = fit(frames[i % len(frames)], rw, rh)
         up.upload(inp, fr, *albs)
         inputs.append(inp)
-        dev.queue.write_buffer(up.ubuf, i * STRIDE, up.params(fr.jitter, False))
+        dev.queue.write_buffer(up.ubuf, i * STRIDE, up.params(cv.sample_offset(*fr.jitter), False))
         if alb:
             ai = Inputs(alb)
             alb.upload(ai, Frame(f=fr.f, rgb=albs[0], depth=fr.depth, mv=fr.mv, jitter=fr.jitter, reset=False))
             ainputs.append(ai)
-            dev.queue.write_buffer(alb.ubuf, i * STRIDE, alb.params(fr.jitter, False))
+            dev.queue.write_buffer(alb.ubuf, i * STRIDE, alb.params(cv.sample_offset(*fr.jitter), False))
     for u in [up] + ([alb] if alb else []):
-        u.dev.queue.write_buffer(u.ubuf, k * STRIDE, u.params(fit(frames[0], rw, rh).jitter, True))
+        u.dev.queue.write_buffer(u.ubuf, k * STRIDE, u.params(cv.sample_offset(*fit(frames[0], rw, rh).jitter), True))
     timer = gpu.Timer(dev, per_f * n)
 
     def frame(enc, f, slot, tm, k0):

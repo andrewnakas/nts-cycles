@@ -139,8 +139,8 @@ class Warper:
     def __call__(self, prev_hr):
         return self._b(prev_hr)
 
-    def disocclusion(self, prev_depth_hr, cur_depth_hr, rel=0.05):
-        return _disocclusion(prev_depth_hr, cur_depth_hr, self.px, self.py, rel)
+    def disocclusion(self, prev_depth_hr, cur_depth_hr, rel=0.05, match=False):
+        return _disocclusion(prev_depth_hr, cur_depth_hr, self.px, self.py, rel, match)
 
 
 def warp(prev_hr, mv_hr):
@@ -148,19 +148,26 @@ def warp(prev_hr, mv_hr):
     return Warper(mv_hr)(prev_hr)
 
 
-def _disocclusion(prev_depth_hr, cur_depth_hr, px, py, rel):
+def _disocclusion(prev_depth_hr, cur_depth_hr, px, py, rel, match=False):
     H, W = cur_depth_hr.shape[:2]
     off = (px < 0) | (py < 0) | (px > W - 1) | (py > H - 1)
-    # nearest previous depth in a 2x2 footprint: bilinear depth would invent surfaces at silhouettes
+    # the previous depths of the 2x2 footprint, taken as they are: bilinear depth would invent surfaces at silhouettes
     x0, y0 = np.clip(px, 0, W - 2).astype(np.int64), np.clip(py, 0, H - 2).astype(np.int64)
     i = y0 * W + x0
     flat = prev_depth_hr.reshape(-1)
-    pd = np.minimum(np.minimum(flat.take(i), flat.take(i + 1)), np.minimum(flat.take(i + W), flat.take(i + (W + 1))))
-    return off | (np.abs(pd - cur_depth_hr) > rel * cur_depth_hr)
+    taps = (flat.take(i), flat.take(i + 1), flat.take(i + W), flat.take(i + (W + 1)))
+    if match:  # another surface only if no tap is this one: a footprint that reaches over a silhouette still matches
+        d = np.minimum(np.minimum(np.abs(taps[0] - cur_depth_hr), np.abs(taps[1] - cur_depth_hr)),
+                       np.minimum(np.abs(taps[2] - cur_depth_hr), np.abs(taps[3] - cur_depth_hr)))
+    else:  # the nearest tap: a background pixel next to a nearer surface fails
+        d = np.abs(np.minimum(np.minimum(taps[0], taps[1]), np.minimum(taps[2], taps[3])) - cur_depth_hr)
+    return off | (d > rel * cur_depth_hr)
 
 
-def disocclusion(prev_depth_hr, cur_depth_hr, mv_hr, rel=0.05):
-    """True where the reprojected previous surface is not the current one (newly visible, or off-screen history)."""
+def disocclusion(prev_depth_hr, cur_depth_hr, mv_hr, rel=0.05, match=False):
+    """True where the reprojected previous surface is not the current one (newly visible, or off-screen history).
+    match: another surface when no previous depth of the 2x2 footprint is within rel of this one (default: when the
+    nearest of them is not)."""
     H, W = mv_hr.shape[:2]
     ys, xs = grid(H, W)
-    return _disocclusion(prev_depth_hr, cur_depth_hr, xs + mv_hr[..., 0], ys + mv_hr[..., 1], rel)
+    return _disocclusion(prev_depth_hr, cur_depth_hr, xs + mv_hr[..., 0], ys + mv_hr[..., 1], rel, match)

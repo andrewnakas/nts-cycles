@@ -72,7 +72,9 @@ def test_quality_modes_converge():
         acc = Accumulator(s, (H, W), wmax=32.0, expand=8.0)  # a loose box: the scene is static
         phases = cv.jitter_phases(lh * cv.OUT[1] / H)
         for i, j in enumerate(cv.jitter_seq(phases, phases)):
-            p = cv.sample_positions_hr(lh, lw, *j, s)
+            ox, oy = cv.sample_offset(*j)  # where each render pixel samples the scene, in output px
+            gy, gx = np.mgrid[0:lh, 0:lw].astype(np.float32)
+            p = np.stack([(gx + 0.5 + ox) * s, (gy + 0.5 + oy) * s], -1)
             lr = texture(p[..., 0] * 2.1 - 1.05, p[..., 1] * 2.1 - 1.05) / 255  # point samples at the true positions
             fr = Frame(f=i, rgb=lr, depth=np.ones((lh, lw), np.float32), mv=np.zeros((lh, lw, 2), np.float32),
                        jitter=j, reset=i == 0)

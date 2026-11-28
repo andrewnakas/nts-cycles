@@ -50,14 +50,6 @@ def sample_offset(jx, jy):
     return jx * SAMPLE_SIGN[0], jy * SAMPLE_SIGN[1]
 
 
-def sample_positions_hr(h, w, jx, jy, scale):
-    """Continuous high-res image coordinates (h, w, 2) of every low-res sample (pixel-centre convention: centre of
-    pixel i is i + 0.5)."""
-    ox, oy = sample_offset(jx, jy)
-    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
-    return np.stack([(xs + 0.5 + ox) * scale, (ys + 0.5 + oy) * scale], axis=-1)
-
-
 def halton(i, base):
     f, r = 1.0, 0.0
     while i > 0:
@@ -92,13 +84,8 @@ def scale_of(meta):
 
 
 # The temporal accumulator's constants (baselines/accumulate.py and its GPU port nts/rt), chosen by nts/rt/fit.py
-# against native renders (2026-11-27): Gaussian splat footprint (output px), clip-box widening (>= 1), history weight
-# cap, weight shrink per unit of clip movement, weight of the bilinear frame in the sum, disocclusion depth tolerance.
-# sigma was fitted at x2; accum_sigma() scales it with the render's pixel spacing for the other modes.
-ACCUM = dict(sigma=0.586, expand=1.32, wmax=16.8, shrink=11.0, prior=0.0117, rel=0.169)
-
-
-def accum_sigma(scale):
-    """The splat footprint (output px) at a given scale: ACCUM's x2 value in proportion to the render's pixel spacing
-    (0.29 at x1, the hand-set value there; only x2 is fitted and measured)."""
-    return ACCUM["sigma"] * scale / 2.0
+# against native renders (2026-11-27, refitted 2026-11-28): footprint of this frame's samples (a Gaussian sigma in
+# render pixels, nts/gather.py), clip-box widening (>= 1), history weight cap, weight shrink per unit of clip movement,
+# weight of the bilinear frame in the sum, disocclusion depth tolerance. Fitted at x2; the footprint, set in render
+# pixels, keeps its size relative to the render at every scale.
+ACCUM = dict(foot=0.293, expand=1.32, wmax=16.8, shrink=11.0, prior=0.0117, rel=0.169)

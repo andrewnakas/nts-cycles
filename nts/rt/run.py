@@ -1,10 +1,10 @@
 """Upscale a render folder on the GPU (nts.rt) into the frames the eval harness reads, as baselines/accumulate.py does.
 
 Run: python -m nts.rt.run <lr_dir> <out_dir> [--build compat|fast] [--frames a-b] [--fmt png] [--wmax w]
-         [--expand e] [--prior w0] [--sigma s] [--shrink k] [--rel r] [--history catmull5|catmull|bilinear]
-         (constants default to conventions.ACCUM; sigma to conventions.accum_sigma(scale))
+         [--expand e] [--prior w0] [--foot f] [--shrink k] [--rel r] [--history catmull5|catmull|bilinear]
+         [--depth-test match|nearest]   (constants default to nts.rt.upscaler.FITTED; foot in render px)
          [--adapter NAME] [--compare] [--linear-npy] [--guide <native_dir> [--eps 0.03] [--reject 0.15]]
---self-guide [--alb-wmax 32 --alb-expand 2 --alb-sigma 0.5]: the render's own albedo accumulated as a guide.
+--self-guide [--alb-wmax 32 --alb-expand 2 --alb-foot 0.25]: the render's own albedo accumulated as a guide.
 --guide: guided mode, with the display-size albedo from that folder's EXRs (Albedo layer) and the render's own albedo.
 --compare also runs baselines/accumulate.py Accumulator on the same frames and prints the PSNR of the GPU frame
 against it (linear, peak = the frame's maximum). Needs OpenImageIO and OCIO (Blender's Python) plus wgpu.
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from baselines.accumulate import Accumulator, arg  # noqa: E402
 from nts.io_exr import Sequence  # noqa: E402
 from nts.rt import gpu  # noqa: E402
-from nts.rt.upscaler import FITTED, RTUpscaler, SelfGuided  # noqa: E402
+from nts.rt.upscaler import DEPTH_TEST, FITTED, RTUpscaler, SelfGuided  # noqa: E402
 from nts.tonemap import Tonemapper  # noqa: E402
 
 
@@ -39,9 +39,10 @@ def main():
     fmt = arg("--fmt", "png")
     ow, oh = seq.meta["out"]
     kw = dict(wmax=float(arg("--wmax", FITTED["wmax"])), expand=float(arg("--expand", FITTED["expand"])),
-              sigma=float(arg("--sigma")) if arg("--sigma") else None, prior=float(arg("--prior", FITTED["prior"])),
+              foot=float(arg("--foot", FITTED["foot"])), prior=float(arg("--prior", FITTED["prior"])),
               history=arg("--history", "catmull5"))
-    tune = dict(shrink=float(arg("--shrink", FITTED["shrink"])), rel=float(arg("--rel", FITTED["rel"])))
+    tune = dict(shrink=float(arg("--shrink", FITTED["shrink"])), rel=float(arg("--rel", FITTED["rel"])),
+                depth_test=arg("--depth-test", DEPTH_TEST))
     guide = arg("--guide")
     if guide:
         from baselines.guided import read_guide
@@ -52,7 +53,7 @@ def main():
     if selfg:  # the render's own albedo only: an albedo history feeds the guided upscaler
         kw.update(eps=float(arg("--eps", 0.03)))
         up = SelfGuided(seq.scale, (oh, ow), alb_wmax=float(arg("--alb-wmax", 32)),
-                        alb_expand=float(arg("--alb-expand", 2)), alb_sigma=float(arg("--alb-sigma", 0.5)),
+                        alb_expand=float(arg("--alb-expand", 2)), alb_foot=float(arg("--alb-foot", 0.25)),
                         build=build, dev=dev, **kw, **tune)
     else:
         up = RTUpscaler(seq.scale, (oh, ow), build=build, dev=dev, **kw, **tune)

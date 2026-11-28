@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nts-cycles"
-version = "0.2.0"
+version = "0.3.0"
 description = "Temporal neural rendering for Blender Cycles frame sequences: realism pass (NR-1), temporal upscaling (NTS-F), frame generation (NTS-G)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -22,12 +22,14 @@ eval = ["opencv-python-headless>=4.8", "scipy>=1.10"]   # eval/flicker_flow.py, 
 dev = ["pytest>=7"]
 rt = ["wgpu>=0.33"]                             # nts/rt: the upscaler on the GPU (WGSL via wgpu: Metal, Vulkan, D3D12)
 rt-view = ["wgpu>=0.33", "glfw>=2.7"]           # nts/rt/view.py's window (--record needs ffmpeg instead)
+rt-eval = ["wgpu>=0.33", "opencolorio>=2.3"]    # nts/rt/scene.py score / fit and nts/rt/fit.py: scored through Blender's
+                                                # view transform (NTS_OCIO_CONFIG = a copy of Blender's config.ocio)
 
 [tool.setuptools.packages.find]
 include = ["nts*", "gen*", "baselines*", "eval*"]
 
 [tool.setuptools.package-data]
-"nts.rt" = ["shaders/*.wgsl"]
+"nts.rt" = ["shaders/*.wgsl", "web/*.js", "web/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
